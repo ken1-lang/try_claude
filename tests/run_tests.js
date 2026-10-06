@@ -81,6 +81,21 @@ const T = [
      return { ch: u.clientHeight, sh: u.scrollHeight, w: Math.round(c.width), sw: document.documentElement.scrollWidth, iw: innerWidth }; });
    return [m.sh > m.ch && m.ch <= 140 && m.w === 320 && m.sw <= m.iw, `履歴欄の高さ ${m.ch}px(内容 ${m.sh}px でスクロール)、電卓の幅 ${m.w}px、横スクロールなし=${m.sw <= m.iw}`]; },
  async p => { await press(p, '3+4=+2='); const h = await hist(p); return [h.length === 2 && h[0] === '7+2 =9' && h[1] === '3+4 =7', `履歴 ${JSON.stringify(h)}`]; },
+ async p => { const d = await p.isDisabled('#downloadHistory'); return [d, `履歴なしのとき、ダウンロードボタンの無効状態=${d}`]; },
+ async p => { await press(p, '1+2='); const en = !(await p.isDisabled('#downloadHistory'));
+   const [d] = await Promise.all([p.waitForEvent('download'), p.click('#downloadHistory')]); const n = d.suggestedFilename();
+   const t = new Date(), pad = x => String(x).padStart(2, '0'); const day = `${t.getFullYear()}${pad(t.getMonth() + 1)}${pad(t.getDate())}`;
+   return [en && n === `calculator-history_${day}.csv`, `ボタン有効=${en}、ファイル名「${n}」`]; },
+ async p => { await press(p, '1+2*3=C8/4='); const [d] = await Promise.all([p.waitForEvent('download'), p.click('#downloadHistory')]);
+   const txt = fs.readFileSync(await d.path(), 'utf8').replace(/^\uFEFF/, ''); const L = txt.split('\r\n');
+   const ts = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},/;
+   const ok = L[0] === '日時,式,結果' && ts.test(L[1]) && L[1].endsWith(',1+2×3,7') && ts.test(L[2]) && L[2].endsWith(',8÷4,2') && L[3] === '' && L.length === 4;
+   return [ok, `CSV: ${JSON.stringify(L.map(x => x.replace(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/, '<日時>')))}`]; },
+ async p => { await press(p, '8/4='); const [d] = await Promise.all([p.waitForEvent('download'), p.click('#downloadHistory')]);
+   const buf = fs.readFileSync(await d.path()); const bom = buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF;
+   return [bom, `先頭3バイトが UTF-8 の BOM(EF BB BF)=${bom}(Excel での目視確認は手動)`]; },
+ async p => { await press(p, '1+2='); const before = await p.isDisabled('#downloadHistory'); await p.click('#clearHistory'); const after = await p.isDisabled('#downloadHistory');
+   return [!before && after, `消去前の無効状態=${before}、消去後の無効状態=${after}`]; },
  // キーボード
  kcalc('123', '123'), async p => { await keys(p, '6*7'); await p.keyboard.press('Enter'); return eq(await val(p), '42'); },
  async p => { await keys(p, '8/4'); await p.keyboard.press('Enter'); const r = await val(p);
@@ -106,7 +121,7 @@ const T = [
   const b = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
   const out = [];
   for (let i = 0; i < T.length; i++) {
-    const ctx = await b.newContext({ viewport: { width: 800, height: 900 } });
+    const ctx = await b.newContext({ viewport: { width: 800, height: 900 }, acceptDownloads: true });
     const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
     await p.goto(URL);
     let r;
