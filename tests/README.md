@@ -6,7 +6,7 @@
 |---|---|
 | `cases.json` | テスト項目(分類・項目名・操作手順・期待結果)。仕様書の内容を変えるときはここを編集 |
 | `run_tests.js` | 各項目を自動実行して `output/results.json` に結果を出力(NG があれば終了コード 1) |
-| `build_report.py` | `output/results.json` から `calculator_test_spec.xlsx` を生成(`openpyxl` が必要) |
+| `build_report.py` | `output/results.json` から `doc/calculator_test_spec.xlsx` を生成(`openpyxl` が必要) |
 
 ## 実行方法
 
@@ -15,7 +15,7 @@ cd tests
 npm install
 npx playwright install chromium   # ブラウザ未導入の場合のみ
 npm test                          # 自動テストを実行
-python3 build_report.py           # ../calculator_test_spec.xlsx を生成
+python3 build_report.py           # ../doc/calculator_test_spec.xlsx を生成
 ```
 
 - 既定ではリポジトリ直下の `index.html` を `file://` で開いてテストします。別の URL を対象にするときは `TARGET_URL=https://... npm test`。

@@ -4,7 +4,7 @@ import json, sys, datetime, subprocess, os
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 cases = [(c['category'], c['item'], c['steps'], c['expected']) for c in json.load(open(os.path.join(HERE, 'cases.json'), encoding='utf-8'))]
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'calculator_test_spec.xlsx')
+OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'doc', 'calculator_test_spec.xlsx')
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.worksheet.datavalidation import DataValidation
