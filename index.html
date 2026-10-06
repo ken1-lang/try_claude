@@ -30,6 +30,15 @@
   button.op { background: #ffb347; }
   button.fn { background: #d0d4dc; }
   button.eq { background: #3b82f6; color: #fff; }
+  .history { margin-top: 12px; border-top: 1px solid #e3e5ea; padding-top: 8px; }
+  .history-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #666; }
+  .history-head button { height: auto; padding: 4px 8px; font-size: 12px; background: #e8eaee; }
+  .history ul { list-style: none; margin: 6px 0 0; padding: 0; max-height: 140px; overflow-y: auto; }
+  .history li { padding: 6px 8px; border-radius: 6px; text-align: right; cursor: pointer; font-size: 14px; word-break: break-all; }
+  .history li:hover { background: #f0f2f6; }
+  .history li small { display: block; color: #888; font-size: 12px; }
+  .history .empty { color: #aaa; text-align: center; cursor: default; }
+  .history .empty:hover { background: none; }
 </style>
 </head>
 <body>
@@ -52,6 +61,13 @@
     <button data-in="0">0</button><button data-in=".">.</button>
     <button class="eq" data-act="eq" style="grid-column: span 2">=</button>
   </div>
+  <div class="history">
+    <div class="history-head">
+      <span>履歴</span>
+      <button id="clearHistory" type="button">履歴を消去</button>
+    </div>
+    <ul id="history"></ul>
+  </div>
 </div>
 <script>
   const OPS = ['+', '−', '×', '÷'];
@@ -60,6 +76,46 @@
 
   const $expr = document.getElementById('expr');
   const $value = document.getElementById('value');
+  const $history = document.getElementById('history');
+
+  // 履歴(新しい順)。localStorage に保存し、使えない環境ではメモリのみ
+  const HISTORY_KEY = 'calc-history';
+  const HISTORY_MAX = 50;
+  let calcHistory = [];
+  try { calcHistory = JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch (e) {}
+
+  function saveHistory() {
+    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(calcHistory)); } catch (e) {}
+  }
+
+  function renderHistory() {
+    $history.textContent = '';
+    if (calcHistory.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'empty'; li.textContent = '履歴はありません';
+      $history.appendChild(li);
+      return;
+    }
+    calcHistory.forEach((h) => {
+      const li = document.createElement('li');
+      const small = document.createElement('small');
+      small.textContent = h.expr + ' =';
+      li.append(small, h.result);
+      li.dataset.result = h.result;
+      $history.appendChild(li);
+    });
+  }
+
+  // 履歴をクリックすると、その結果を続けて使える
+  $history.addEventListener('click', (e) => {
+    const li = e.target.closest('li');
+    if (!li || !li.dataset.result) return;
+    expr = li.dataset.result; justEvaluated = true; render();
+  });
+
+  document.getElementById('clearHistory').addEventListener('click', () => {
+    calcHistory = []; saveHistory(); renderHistory();
+  });
 
   function render(result) {
     $expr.textContent = result === undefined ? '' : expr;
@@ -124,6 +180,9 @@
       const r = calculate(s);
       const text = String(parseFloat(r.toPrecision(12)));
       expr = s; render(text);
+      calcHistory.unshift({ expr: s, result: text });
+      calcHistory = calcHistory.slice(0, HISTORY_MAX);
+      saveHistory(); renderHistory();
       expr = text; justEvaluated = true;
     } catch (e) {
       render(e.message); expr = ''; justEvaluated = false;
@@ -150,6 +209,8 @@
     justEvaluated = false;
     render();
   }
+
+  renderHistory();
 
   document.addEventListener('keydown', (e) => {
     const map = { '*': '×', '/': '÷', '-': '−' };
