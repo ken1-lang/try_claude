@@ -38,6 +38,14 @@
   .settings .error { min-height: 18px; color: #c0392b; font-size: 13px; }
   .settings .actions { display: flex; gap: 8px; }
   .settings .actions button { flex: 1; height: 44px; font-size: 16px; }
+  .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
+  .modes button { height: 44px; font-size: 15px; }
+  .modes button.on { background: #3b82f6; color: #fff; }
+  .hexkeys { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 8px; }
+  .hexkeys[hidden] { display: none; }
+  .hexkeys button { height: 44px; font-size: 16px; }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button:disabled:active { filter: none; }
   .keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
   button {
     height: 56px; border: 0; border-radius: 10px; font-size: 20px; cursor: pointer;
@@ -70,6 +78,15 @@
     <button class="fn" type="button" id="allClear">AC</button>
     <button class="fn" type="button" id="openSettings">⚙ 設定</button>
     <button class="op" type="button" id="taxBtn">消費税(10%)</button>
+  </div>
+  <div class="modes" role="group" aria-label="進数">
+    <button type="button" data-mode="10" class="on" aria-pressed="true">10進数</button>
+    <button type="button" data-mode="2" aria-pressed="false">2進数</button>
+    <button type="button" data-mode="16" aria-pressed="false">16進数</button>
+  </div>
+  <div class="hexkeys" id="hexkeys" hidden>
+    <button type="button" data-in="A">A</button><button type="button" data-in="B">B</button><button type="button" data-in="C">C</button>
+    <button type="button" data-in="D">D</button><button type="button" data-in="E">E</button><button type="button" data-in="F">F</button>
   </div>
   <div class="keys">
     <button class="fn" data-act="clear">C</button>
@@ -111,6 +128,10 @@
 <script>
   const OPS = ['+', '−', '×', '÷'];
   let expr = '';        // 入力中の式
+  let mode = 10;        // 進数(10 / 2 / 16)
+  const DIGITS = { 10: '0123456789', 2: '01', 16: '0123456789ABCDEF' };
+  // 値を現在(または指定)の進数の文字列にする。10進数は誤差を丸める
+  const fmt = (v, m = mode) => m === 10 ? String(parseFloat(v.toPrecision(12))) : v.toString(m).toUpperCase();
   let justEvaluated = false;
 
   const $expr = document.getElementById('expr');
@@ -141,9 +162,10 @@
     calcHistory.forEach((h) => {
       const li = document.createElement('li');
       const small = document.createElement('small');
-      small.textContent = h.expr + ' =';
+      small.textContent = (h.base && h.base !== 10 ? `(${h.base}進数) ` : '') + h.expr + ' =';
       li.append(small, h.result);
       li.dataset.result = h.result;
+      li.dataset.base = h.base || 10;
       $history.appendChild(li);
     });
   }
@@ -152,7 +174,15 @@
   $history.addEventListener('click', (e) => {
     const li = e.target.closest('li');
     if (!li || !li.dataset.result) return;
-    expr = li.dataset.result; justEvaluated = true; render();
+    const hb = Number(li.dataset.base);
+    if (hb === mode) expr = li.dataset.result;
+    else {
+      // 別の進数で記録された結果は、現在の進数に変換して使う
+      const v = hb === 10 ? parseFloat(li.dataset.result) : parseInt(li.dataset.result, hb);
+      if (mode !== 10 && !Number.isInteger(v)) { render('整数のみ変換できます'); return; }
+      expr = fmt(v);
+    }
+    justEvaluated = true; render();
   });
 
   // 履歴を CSV(UTF-8 BOM 付き・Excel で文字化けしない)でダウンロード。古い順に出力
@@ -168,8 +198,8 @@
 
   $download.addEventListener('click', () => {
     if (calcHistory.length === 0) return;
-    const rows = [['日時', '式', '結果']];
-    calcHistory.slice().reverse().forEach((h) => rows.push([formatTime(h.t), h.expr, h.result]));
+    const rows = [['日時', '式', '結果', '進数']];
+    calcHistory.slice().reverse().forEach((h) => rows.push([formatTime(h.t), h.expr, h.result, String(h.base || 10)]));
     const csv = '\uFEFF' + rows.map((r) => r.map(csvField).join(',')).join('\r\n') + '\r\n';
     const now = new Date();
     const a = document.createElement('a');
@@ -189,6 +219,8 @@
   }
 
   function input(ch) {
+    // 現在の進数で使えない文字(2進数の 2〜9、10進数の A〜F、10進数以外の小数点)は無視
+    if (!OPS.includes(ch) && !(ch === '.' ? mode === 10 : DIGITS[mode].includes(ch))) return;
     const last = expr.slice(-1);
     if (justEvaluated) {
       // 結果に続けて演算子ならそのまま継続、数字なら新規入力
@@ -215,26 +247,31 @@
 
   function clearAll() { expr = ''; justEvaluated = false; render(); }
 
-  // eval を使わず、優先順位(×÷ > +−)を考慮して計算
+  // eval を使わず、優先順位(×÷ > +−)を考慮して計算。現在の進数で解釈する
+  // 10進数以外は整数のみで、割り算は小数点以下を切り捨てる
   function calculate(s) {
-    const tokens = s.match(/\d+\.?\d*|\.\d+|[+−×÷]/g) || [];
+    s = s.replace(/^-/, '−');   // 計算結果の負号は半角「-」。先頭なら演算子の「−」に揃える
+    const dec = mode === 10;
+    const tokens = s.match(dec ? /\d+\.?\d*|\.\d+|[+−×÷]/g : /[0-9A-F]+|[+−×÷]/g) || [];
+    const num = (t) => dec ? parseFloat(t) : parseInt(t, mode);
     // 先頭の負号を数値に畳み込む
     if (tokens[0] === '−') { tokens.shift(); tokens[0] = '-' + tokens[0]; }
     const stack = [];
     for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i];
       if (t === '×' || t === '÷') {
-        const a = parseFloat(stack.pop());
-        const b = parseFloat(tokens[++i]);
+        const a = stack.pop();
+        const b = num(tokens[++i]);
         if (t === '÷' && b === 0) throw new Error('0で割れません');
-        stack.push(t === '×' ? a * b : a / b);
-      } else stack.push(t);
+        stack.push(t === '×' ? a * b : dec ? a / b : Math.trunc(a / b));
+      } else stack.push(OPS.includes(t) ? t : num(t));
     }
-    let result = parseFloat(stack[0]);
+    let result = stack[0];
     for (let i = 1; i < stack.length; i += 2) {
-      const n = parseFloat(stack[i + 1]);
+      const n = stack[i + 1];
       result = stack[i] === '+' ? result + n : result - n;
     }
+    if (!dec && !Number.isSafeInteger(result)) throw new Error('数値が大きすぎます');
     return result;
   }
 
@@ -242,11 +279,12 @@
     if (!expr) return;
     let s = expr;
     if (OPS.includes(s.slice(-1))) s = s.slice(0, -1);
+    if (!s) return;
     try {
       const r = calculate(s);
-      const text = String(parseFloat(r.toPrecision(12)));
+      const text = fmt(r);
       expr = s; render(text);
-      calcHistory.unshift({ expr: s, result: text, t: Date.now() });
+      calcHistory.unshift({ expr: s, result: text, t: Date.now(), base: mode });
       calcHistory = calcHistory.slice(0, HISTORY_MAX);
       saveHistory(); renderHistory();
       expr = text; justEvaluated = true;
@@ -284,9 +322,10 @@
 
   // 現在の値(式なら計算結果)に消費税を加えた税込金額にする
   function applyTax() {
-    if (!expr) return;
+    if (!expr || mode !== 10) return;
     let s = expr;
     if (OPS.includes(s.slice(-1))) s = s.slice(0, -1);
+    if (!s) return;
     try {
       const base = calculate(s);
       const text = String(parseFloat((base * (1 + taxRate / 100)).toPrecision(12)));
@@ -329,8 +368,53 @@
   });
   renderTaxBtn();
 
-  // オールクリア: 入力中の式・履歴・消費税率(初期値 10% に戻す)をすべて消す
+  // ---- 進数変換 ----
+  const $hexkeys = document.getElementById('hexkeys');
+
+  function updateModeUI() {
+    document.querySelectorAll('.modes button').forEach((b) => {
+      const on = Number(b.dataset.mode) === mode;
+      b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
+    });
+    $hexkeys.hidden = mode !== 16;
+    // 現在の進数で使えないキーは押せなくする
+    document.querySelectorAll('.keys button[data-in]').forEach((b) => {
+      const k = b.dataset.in;
+      b.disabled = OPS.includes(k) ? false : (k === '.' || k === '%') ? mode !== 10 : !DIGITS[mode].includes(k);
+    });
+    $taxBtn.disabled = mode !== 10;   // 消費税は10進数のときだけ
+  }
+
+  // 進数を切り替え、入力中の式(式なら計算結果)を新しい進数の値に変換する
+  function setMode(m) {
+    if (m === mode) return;
+    let v = null;
+    if (expr) {
+      let s = expr;
+      if (OPS.includes(s.slice(-1))) s = s.slice(0, -1);
+      if (s) {
+        try { v = calculate(s); }
+        catch (e) { render(e.message); expr = ''; justEvaluated = false; return; }
+        if (m !== 10 && !Number.isInteger(v)) { render('整数のみ変換できます'); return; }
+        if (m !== 10 && !Number.isSafeInteger(v)) { render('数値が大きすぎます'); return; }
+      }
+    }
+    mode = m; updateModeUI();
+    if (v !== null) { expr = fmt(v); justEvaluated = true; }
+    render();
+  }
+
+  document.querySelector('.modes').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (b) setMode(Number(b.dataset.mode));
+  });
+  $hexkeys.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (b) input(b.dataset.in);
+  });
+  updateModeUI();
+
+  // オールクリア: 入力中の式・履歴・消費税率(初期値 10% に戻す)・進数(10進数)をすべて戻す
   function allClear() {
+    mode = 10; updateModeUI();
     clearAll();
     calcHistory = []; saveHistory(); renderHistory();
     taxRate = DEFAULT_TAX;
@@ -340,7 +424,8 @@
   document.getElementById('allClear').addEventListener('click', allClear);
 
   function percent() {
-    // 直近の数値を 1/100 にする
+    // 直近の数値を 1/100 にする(10進数のみ)
+    if (mode !== 10) return;
     const m = expr.match(/(\d+\.?\d*)$/);
     if (!m) return;
     const v = String(parseFloat((parseFloat(m[1]) / 100).toPrecision(12)));
@@ -353,8 +438,10 @@
 
   document.addEventListener('keydown', (e) => {
     if (!$settings.hidden) return;   // 設定画面を開いている間は電卓のキー操作を無効にする
+    if (e.ctrlKey || e.metaKey || e.altKey) return;   // Ctrl+C などのショートカットは邪魔しない
     const map = { '*': '×', '/': '÷', '-': '−' };
     if (/^[0-9.+]$/.test(e.key)) input(e.key);
+    else if (/^[a-fA-F]$/.test(e.key)) input(e.key.toUpperCase());
     else if (map[e.key]) { e.preventDefault(); input(map[e.key]); }
     else if (e.key === 'Enter' || e.key === '=') { e.preventDefault(); evaluate(); }
     else if (e.key === 'Backspace') back();

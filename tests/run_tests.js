@@ -21,14 +21,17 @@ const kcalc = (seq, e) => async p => { await keys(p, seq); return eq(await val(p
 const taxCalc = (seq, e, exprText) => async p => { await press(p, seq); await p.click('#taxBtn'); const v = await val(p); const x = await ex(p);
   return [v === e && (exprText === undefined || x === exprText), `結果「${v}」(期待「${e}」)、式欄「${x}」`]; };
 const setRate = async (p, v) => { await p.click('#openSettings'); await p.fill('#taxRate', v); await p.click('#saveSettings'); };
+const setM = (p, n) => p.click(`.modes button[data-mode="${n}"]`);
+const pressH = async (p, s) => { for (const ch of s) { if (/[A-F]/.test(ch)) await p.click(`.hexkeys button:text-is("${ch}")`); else await press(p, ch); } };
+const dis = (p, k) => p.$eval(`.keys button:text-is("${MAP[k] || k}")`, b => b.disabled);
 const NA = reason => ({ skip: reason });
 
 const T = [
  // 画面表示
- async p => { const tools = await p.$$eval('.tools button', l => l.map(x => x.textContent)); const b = await p.$$eval('.keys button', l => l.map(x => x.textContent).sort().join(''));
+ async p => { const tools = await p.$$eval('.tools button', l => l.map(x => x.textContent)); const modes = await p.$$eval('.modes button', l => l.map(x => x.textContent)); const b = await p.$$eval('.keys button', l => l.map(x => x.textContent).sort().join(''));
    const exp = ['0','1','2','3','4','5','6','7','8','9','.','C','⌫','%','÷','×','−','+','='].sort().join('');
-   const h = await hist(p); const ok = b === exp && tools.join('|') === 'AC|⚙ 設定|消費税(10%)' && await val(p) === '0' && await ex(p) === '' && h.length === 1 && h[0] === '履歴はありません';
-   return [ok, `表示欄「${await val(p)}」、式欄「${await ex(p)}」、ボタン${(await p.$$('.keys button')).length}個+${tools.join('・')}、履歴欄「${h[0]}」`]; },
+   const h = await hist(p); const ok = b === exp && tools.join('|') === 'AC|⚙ 設定|消費税(10%)' && modes.join('|') === '10進数|2進数|16進数' && await val(p) === '0' && await ex(p) === '' && h.length === 1 && h[0] === '履歴はありません';
+   return [ok, `表示欄「${await val(p)}」、式欄「${await ex(p)}」、ボタン${(await p.$$('.keys button')).length}個+${tools.join('・')}+${modes.join('・')}、履歴欄「${h[0]}」`]; },
  async p => { await press(p, '1234567890'); const a = await val(p); const bad = [];
    for (const d of '0123456789') { await press(p, 'C' + d); if (await val(p) !== d) bad.push(d); }
    await press(p, 'C1234567890'); const a2 = await val(p);
@@ -40,7 +43,7 @@ const T = [
    return [f === 'none' && f2 !== 'none', `通常時 filter=${f}、押下中 filter=${f2}`]; },
  async (p, ctx, br) => { const c = await br.newContext({ viewport: { width: 360, height: 640 } }); const q = await c.newPage(); await q.goto(URL);
    const m = await q.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: innerWidth,
-     btns: [...document.querySelectorAll('.keys button, .tools button')].map(b => { const r = b.getBoundingClientRect(); return { l: r.left, r: r.right, w: r.width, h: r.height }; }) }));
+     btns: [...document.querySelectorAll('.keys button, .tools button, .modes button')].map(b => { const r = b.getBoundingClientRect(); return { l: r.left, r: r.right, w: r.width, h: r.height }; }) }));
    await q.screenshot({ path: path.join(os.tmpdir(), 'calc-mobile360.png') }); await c.close();
    const inside = m.btns.every(b => b.l >= 0 && b.r <= m.iw); const minSz = Math.min(...m.btns.map(b => Math.min(b.w, b.h)));
    return [m.sw <= m.iw && inside && minSz >= 44, `ページ幅 ${m.sw}px / 画面幅 ${m.iw}px(横スクロールなし=${m.sw <= m.iw})、全${m.btns.length}ボタンが画面内、最小ボタンサイズ ${Math.round(minSz)}px`]; },
@@ -56,9 +59,11 @@ const T = [
  // 演算子
  async p => { await press(p, '+*/'); return eq(await val(p), '0'); },
  calc('-5+2=', '-3'), calc('5+*3=', '15'), calc('5+=', '5'),
+ async p => { await press(p, '-='); const h = await hist(p); return [await val(p) === '−' && h[0] === '履歴はありません', `表示「${await val(p)}」、履歴「${h[0]}」`]; },
  async p => { await press(p, '='); const h = await hist(p); return [await val(p) === '0' && h[0] === '履歴はありません', `表示「${await val(p)}」、履歴「${h[0]}」`]; },
  // 連続計算
  calc('3+4=+2=', '9'), calc('3+4=5', '5'), calc('3+4=.', '0.'),
+ calc('3-5=+5=', '3'), calc('3-5=*4=', '-8'),
  // クリア
  async p => { await press(p, '12+3C'); return [await val(p) === '0' && await ex(p) === '', `表示「${await val(p)}」、式欄「${await ex(p)}」`]; },
  calc('1+2=C', '0'), calc('12+3C4*2=', '8'),
@@ -133,13 +138,52 @@ const T = [
  async p => { await press(p, '1+2*3=C8/4='); const [d] = await Promise.all([p.waitForEvent('download'), p.click('#downloadHistory')]);
    const txt = fs.readFileSync(await d.path(), 'utf8').replace(/^\uFEFF/, ''); const L = txt.split('\r\n');
    const ts = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},/;
-   const ok = L[0] === '日時,式,結果' && ts.test(L[1]) && L[1].endsWith(',1+2×3,7') && ts.test(L[2]) && L[2].endsWith(',8÷4,2') && L[3] === '' && L.length === 4;
+   const ok = L[0] === '日時,式,結果,進数' && ts.test(L[1]) && L[1].endsWith(',1+2×3,7,10') && ts.test(L[2]) && L[2].endsWith(',8÷4,2,10') && L[3] === '' && L.length === 4;
    return [ok, `CSV: ${JSON.stringify(L.map(x => x.replace(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/, '<日時>')))}`]; },
  async p => { await press(p, '8/4='); const [d] = await Promise.all([p.waitForEvent('download'), p.click('#downloadHistory')]);
    const buf = fs.readFileSync(await d.path()); const bom = buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF;
    return [bom, `先頭3バイトが UTF-8 の BOM(EF BB BF)=${bom}(Excel での目視確認は手動)`]; },
  async p => { await press(p, '1+2='); const before = await p.isDisabled('#downloadHistory'); await p.click('#clearHistory'); const after = await p.isDisabled('#downloadHistory');
    return [!before && after, `消去前の無効状態=${before}、消去後の無効状態=${after}`]; },
+ // 進数変換
+ async p => { const on = await p.$$eval('.modes button', l => l.map(b => b.classList.contains('on'))); const hex = await p.$eval('#hexkeys', e => e.hidden);
+   return [on.join() === 'true,false,false' && hex, `選択状態 ${on.join('/')}、A〜Fキー非表示=${hex}`]; },
+ async p => { await press(p, '10'); await setM(p, 2); const v = await val(p); const on = await p.$eval('.modes button[data-mode="2"]', b => b.classList.contains('on')); return [v === '1010' && on, `表示「${v}」、2進数が選択=${on}`]; },
+ async p => { await press(p, '255'); await setM(p, 16); const v = await val(p); const hk = !(await p.$eval('#hexkeys', e => e.hidden)); return [v === 'FF' && hk, `表示「${v}」、A〜Fキー表示=${hk}`]; },
+ async p => { await press(p, '10'); await setM(p, 2); const a = await val(p); await setM(p, 10); const v = await val(p); return [a === '1010' && v === '10', `2進数「${a}」→ 10進数「${v}」`]; },
+ async p => { await press(p, '255'); await setM(p, 16); const a = await val(p); await setM(p, 10); const v = await val(p); return [a === 'FF' && v === '255', `16進数「${a}」→ 10進数「${v}」`]; },
+ async p => { await press(p, '15'); await setM(p, 2); const a = await val(p); await setM(p, 16); const v = await val(p); return [a === '1111' && v === 'F', `2進数「${a}」→ 16進数「${v}」`]; },
+ async p => { await press(p, '3+4'); await setM(p, 2); return eq(await val(p), '111'); },
+ async p => { await press(p, '2.5'); await setM(p, 2); const v = await val(p); const on10 = await p.$eval('.modes button[data-mode="10"]', b => b.classList.contains('on'));
+   return [v === '整数のみ変換できます' && on10, `表示「${v}」、10進数のまま=${on10}`]; },
+ async p => { await press(p, '3-5='); await setM(p, 2); return eq(await val(p), '-10'); },
+ async p => { await setM(p, 2); const v = await val(p); await press(p, '10'); return [v === '0' && await val(p) === '10', `切替直後「${v}」、10入力後「${await val(p)}」`]; },
+ async p => { await setM(p, 2); const off = []; for (const k of '23456789.%') if (!(await dis(p, k))) off.push(k); const on = []; for (const k of '01+−×÷=') if (await dis(p, k)) on.push(k);
+   const tax = await p.isDisabled('#taxBtn'); return [!off.length && !on.length && tax, `押せてしまうキー: ${off.join('') || 'なし'}、押せないはずのキー: ${on.join('') || 'なし'}、消費税ボタン無効=${tax}`]; },
+ async p => { await setM(p, 16); const off = []; for (const k of '.%') if (!(await dis(p, k))) off.push(k); const dd = []; for (const k of '0123456789') if (await dis(p, k)) dd.push(k);
+   const ab = await p.$$eval('#hexkeys button', l => l.map(b => b.textContent + (b.disabled ? '(無効)' : ''))); const tax = await p.isDisabled('#taxBtn');
+   return [!off.length && !dd.length && ab.join('') === 'ABCDEF' && tax, `A〜F: ${ab.join('')}、数字の無効: ${dd.join('') || 'なし'}、押せてしまう . %: ${off.join('') || 'なし'}、消費税ボタン無効=${tax}`]; },
+ async p => { await setM(p, 16); await setM(p, 10); const hid = await p.$eval('#hexkeys', e => e.hidden); const dd = []; for (const k of '0123456789.%') if (await dis(p, k)) dd.push(k); const tax = await p.isDisabled('#taxBtn');
+   return [hid && !dd.length && !tax, `A〜Fキー非表示=${hid}、無効のキー: ${dd.join('') || 'なし'}、消費税ボタン無効=${tax}`]; },
+ async p => { await setM(p, 2); await press(p, '101+11='); return eq(await val(p), '1000'); },
+ async p => { await setM(p, 16); await pressH(p, 'FF+1='); const a = await val(p); await press(p, 'C'); await pressH(p, 'A*B='); const b = await val(p); return [a === '100' && b === '6E', `FF+1=「${a}」、A×B=「${b}」`]; },
+ async p => { await setM(p, 2); await press(p, '111/10='); const a = await val(p); await press(p, 'C'); await setM(p, 16); await pressH(p, 'F/2='); const b = await val(p); return [a === '11' && b === '7', `2進 111÷10=「${a}」、16進 F÷2=「${b}」`]; },
+ async p => { await setM(p, 2); await press(p, '1-11='); return eq(await val(p), '-10'); },
+ async p => { await setM(p, 2); await setM(p, 10); await press(p, '1.5+1='); return eq(await val(p), '2.5'); },
+ async p => { await press(p, '6+4='); await setM(p, 16); const a = await val(p); await press(p, '+1='); const b = await val(p); return [a === 'A' && b === 'B', `変換後「${a}」、+1= で「${b}」`]; },
+ async p => { await setM(p, 16); await pressH(p, 'F/0='); return eq(await val(p), '0で割れません'); },
+ async p => { await setM(p, 16); await pressH(p, 'FFFFFFFFFFFF*FFFF='); return eq(await val(p), '数値が大きすぎます'); },
+ async p => { await setM(p, 2); await press(p, '101+11='); const h = await hist(p); return [h.length === 1 && h[0] === '(2進数) 101+11 =1000', `履歴 ${JSON.stringify(h)}`]; },
+ async p => { await press(p, '10+5='); await setM(p, 16); const a = await val(p); await p.click('#history li'); const v = await val(p); return [a === 'F' && v === 'F', `変換後「${a}」、履歴クリック後「${v}」`]; },
+ async p => { await setM(p, 2); await press(p, '101+11='); const [d] = await Promise.all([p.waitForEvent('download'), p.click('#downloadHistory')]);
+   const L = fs.readFileSync(await d.path(), 'utf8').replace(/^﻿/, '').split('\r\n'); const ok = L[0] === '日時,式,結果,進数' && /,101\+11,1000,2$/.test(L[1]);
+   return [ok, `CSV 2行目(日時除く): 「${L[1].replace(/^[\d\- :]+/, '')}」`]; },
+ async p => { await setM(p, 16); await pressH(p, 'A'); await press(p, 'C'); const v = await val(p); const hk = !(await p.$eval('#hexkeys', e => e.hidden)); const on = await p.$eval('.modes button[data-mode="16"]', b => b.classList.contains('on'));
+   return [v === '0' && hk && on, `表示「${v}」、16進数のまま=${on}、A〜Fキー表示=${hk}`]; },
+ async p => { await setM(p, 16); await p.click('#allClear'); const v = await val(p); const on = await p.$eval('.modes button[data-mode="10"]', b => b.classList.contains('on')); const hid = await p.$eval('#hexkeys', e => e.hidden);
+   return [v === '0' && on && hid, `表示「${v}」、10進数が選択=${on}、A〜Fキー非表示=${hid}`]; },
+ async p => { await setM(p, 16); await keys(p, 'af1'); return eq(await val(p), 'AF1'); },
+ async p => { await setM(p, 2); await keys(p, '21'); const a = await val(p); await p.click('#allClear'); await keys(p, 'a'); const b = await val(p); return [a === '1' && b === '0', `2進数で 2,1 → 「${a}」、10進数で a → 「${b}」`]; },
  // キーボード
  kcalc('123', '123'), async p => { await keys(p, '6*7'); await p.keyboard.press('Enter'); return eq(await val(p), '42'); },
  async p => { await keys(p, '8/4'); await p.keyboard.press('Enter'); const r = await val(p);
