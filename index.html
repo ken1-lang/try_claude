@@ -21,8 +21,8 @@
   }
   .expr { min-height: 20px; color: #888; font-size: 14px; word-break: break-all; }
   .value { font-size: 32px; font-weight: 600; word-break: break-all; }
-  .tools { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
-  .tools button { height: 44px; font-size: 16px; }
+  .tools { display: grid; grid-template-columns: 1fr 1.2fr 1.6fr; gap: 8px; margin-bottom: 8px; }
+  .tools button { height: 44px; font-size: 15px; padding: 0 4px; white-space: nowrap; }
   .settings {
     position: absolute; inset: 0; z-index: 10; padding: 24px 20px; background: #fff;
     border-radius: 16px; display: flex; flex-direction: column; gap: 12px;
@@ -67,6 +67,7 @@
     <div class="value" id="value">0</div>
   </div>
   <div class="tools">
+    <button class="fn" type="button" id="allClear">AC</button>
     <button class="fn" type="button" id="openSettings">⚙ 設定</button>
     <button class="op" type="button" id="taxBtn">消費税(10%)</button>
   </div>
@@ -327,6 +328,16 @@
     else if (e.key === 'Escape') { e.preventDefault(); closeSettings(); }
   });
   renderTaxBtn();
+
+  // オールクリア: 入力中の式・履歴・消費税率(初期値 10% に戻す)をすべて消す
+  function allClear() {
+    clearAll();
+    calcHistory = []; saveHistory(); renderHistory();
+    taxRate = DEFAULT_TAX;
+    try { localStorage.removeItem(TAX_KEY); } catch (e) {}
+    renderTaxBtn(); closeSettings();
+  }
+  document.getElementById('allClear').addEventListener('click', allClear);
 
   function percent() {
     // 直近の数値を 1/100 にする

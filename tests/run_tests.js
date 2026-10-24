@@ -27,7 +27,7 @@ const T = [
  // 画面表示
  async p => { const tools = await p.$$eval('.tools button', l => l.map(x => x.textContent)); const b = await p.$$eval('.keys button', l => l.map(x => x.textContent).sort().join(''));
    const exp = ['0','1','2','3','4','5','6','7','8','9','.','C','⌫','%','÷','×','−','+','='].sort().join('');
-   const h = await hist(p); const ok = b === exp && tools.join('|') === '⚙ 設定|消費税(10%)' && await val(p) === '0' && await ex(p) === '' && h.length === 1 && h[0] === '履歴はありません';
+   const h = await hist(p); const ok = b === exp && tools.join('|') === 'AC|⚙ 設定|消費税(10%)' && await val(p) === '0' && await ex(p) === '' && h.length === 1 && h[0] === '履歴はありません';
    return [ok, `表示欄「${await val(p)}」、式欄「${await ex(p)}」、ボタン${(await p.$$('.keys button')).length}個+${tools.join('・')}、履歴欄「${h[0]}」`]; },
  async p => { await press(p, '1234567890'); const a = await val(p); const bad = [];
    for (const d of '0123456789') { await press(p, 'C' + d); if (await val(p) !== d) bad.push(d); }
@@ -63,6 +63,16 @@ const T = [
  async p => { await press(p, '12+3C'); return [await val(p) === '0' && await ex(p) === '', `表示「${await val(p)}」、式欄「${await ex(p)}」`]; },
  calc('1+2=C', '0'), calc('12+3C4*2=', '8'),
  async p => { await press(p, '1+2=C'); const h = await hist(p); return [h.length === 1 && h[0] === '1+2 =3', `履歴 ${JSON.stringify(h)}`]; },
+ // オールクリア
+ async p => { await press(p, '12+3'); await p.click('#allClear'); return [await val(p) === '0' && await ex(p) === '', `表示「${await val(p)}」、式欄「${await ex(p)}」`]; },
+ async p => { await press(p, '1+2='); await p.click('#allClear'); return [await val(p) === '0' && await ex(p) === '', `表示「${await val(p)}」、式欄「${await ex(p)}」`]; },
+ async p => { await press(p, '1+2=C8/4='); await p.click('#allClear'); const h = await hist(p); const dis = await p.isDisabled('#downloadHistory'); await p.reload(); const h2 = await hist(p);
+   return [h[0] === '履歴はありません' && dis && h2[0] === '履歴はありません', `AC後の履歴「${h[0]}」、ダウンロード無効=${dis}、再読み込み後「${h2[0]}」`]; },
+ async p => { await setRate(p, '8'); await p.click('#allClear'); const t1 = await p.textContent('#taxBtn'); await p.reload(); const t2 = await p.textContent('#taxBtn');
+   return [t1 === '消費税(10%)' && t2 === '消費税(10%)', `AC後「${t1}」、再読み込み後「${t2}」`]; },
+ async p => { await press(p, '99+1'); await p.click('#allClear'); await press(p, '4*2='); return eq(await val(p), '8'); },
+ async p => { await setRate(p, '8'); await press(p, '1+2='); await press(p, 'C'); const h = await hist(p); const t = await p.textContent('#taxBtn');
+   return [await val(p) === '0' && h.length === 1 && t === '消費税(8%)', `表示「${await val(p)}」、履歴件数 ${h.length}、ボタン「${t}」`]; },
  // 1文字削除
  calc('123B', '12'), calc('12+B', '12'), async p => { await press(p, '1.B'); const a = await val(p); await press(p, '.5'); return [a === '1' && await val(p) === '1.5', `削除後「${a}」→ 再入力後「${await val(p)}」`]; },
  calc('123BBB', '0'), calc('B', '0'), calc('12+34B=', '15'), calc('1+2=B', '0'),
