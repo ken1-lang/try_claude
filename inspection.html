@@ -129,9 +129,19 @@
       </div>
     </fieldset>
 
+    <fieldset>
+      <legend>送信先</legend>
+      <div class="field">
+        <label for="mailTo">送信先メールアドレス</label>
+        <input type="text" id="mailTo" name="mailTo" inputmode="email" autocomplete="email" placeholder="例: kanri@example.com">
+        <div class="hint">「送信する」を押すと、点検内容の CSV ファイルをメールに添付する画面になります。スマホなどでは共有画面でメールアプリを選びます(宛先はメールアプリ側で入力)。パソコンなどでは、CSV がダウンロードされてメールアプリが開くので、ファイルを添付してください(宛先はここで入力したものが入ります)。複数の宛先はカンマ(,)で区切ります。入力した宛先はこの端末に記憶されます。</div>
+        <div class="err" data-err="mailTo"></div>
+      </div>
+    </fieldset>
+
     <div class="actions">
       <button type="button" id="resetBtn">入力をクリア</button>
-      <button type="submit" class="primary">記録する</button>
+      <button type="submit" class="primary">送信する</button>
     </div>
   </form>
 
@@ -230,10 +240,12 @@
   // ---- 下書きの自動保存(ブラウザ内のみ) ----
   function collect() {
     const d = { date: $('date').value, driver: $('driver').value, vehicle: $('vehicle').value,
-      startKm: $('startKm').value, endKm: $('endKm').value, remarks: $('remarks').value, items: {} };
+      startKm: $('startKm').value, endKm: $('endKm').value, remarks: $('remarks').value, mailTo: $('mailTo').value, items: {} };
     ALL_ITEMS.forEach(({ id }) => { d.items[id] = { v: itemValue(id), note: $(id + '-note').value }; });
     return d;
   }
+  const MAIL_KEY = 'inspection-mailto';
+  function saveMailTo() { try { localStorage.setItem(MAIL_KEY, $('mailTo').value.trim()); } catch (e) {} }
   function saveDraft() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(collect())); } catch (e) {} }
   function restore(d) {
     $('date').value = d.date || ''; $('driver').value = d.driver || ''; $('vehicle').value = d.vehicle || '';
@@ -258,6 +270,9 @@
     else if (isNaN(a)) add('startKm', '数字で入力してください(例: 12345.6)', 'startKm');
     if (b !== null && isNaN(b)) add('endKm', '数字で入力してください(例: 12400.2)', 'endKm');
     else if (typeof a === 'number' && !isNaN(a) && typeof b === 'number' && b < a) add('endKm', '走りはじめの距離以上の値を入力してください', 'endKm');
+    const to = parseTo($('mailTo').value);
+    if (to.some((x) => !/^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/.test(x)))
+      add('mailTo', 'メールアドレスの形式を確認してください(複数はカンマ区切り)', 'mailTo');
     ALL_ITEMS.forEach(({ id, name }) => {
       const v = itemValue(id);
       if (!v) add(id, `「${name}」の判定を選択してください`, id + '-ok');
@@ -298,22 +313,82 @@
     return '﻿' + [head, row].map((r) => r.map(csvField).join(',')).join('\r\n') + '\r\n';
   }
 
-  function showResult(d) {
+  // 宛先の入力(カンマ・読点・セミコロン区切り)を配列にする
+  const parseTo = (text) => text.split(/[,，、;；]/).map((x) => x.trim()).filter(Boolean);
+
+  const csvName = (d) => `inspection_${d.date.replace(/-/g, '')}.csv`;
+
+  function downloadCsv(d) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([buildCsv(d)], { type: 'text/csv;charset=utf-8' }));
+    a.download = csvName(d);
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  // メールの件名・本文
+  const mailSubject = (d) => `【車両始業点検】${d.date} ${d.vehicle.trim()} ${d.driver.trim()}`;
+  function mailBody(d, extra) {
+    const a = parseKm(d.startKm), b = parseKm(d.endKm);
+    const ngs = ALL_ITEMS.filter(({ id }) => d.items[id].v === 'ng');
+    const lines = ['車両始業点検表を送付します。', extra, '',
+      `点検日: ${d.date}`, `運転者名: ${d.driver.trim()}`, `車両番号: ${d.vehicle.trim()}`,
+      `走りはじめ: ${fmtKm(a)} km`, `走り終わり: ${b === null ? '(未記入)' : fmtKm(b) + ' km'}`,
+      `走行距離: ${b === null ? '-' : fmtKm(b - a) + ' km'}`,
+      `点検結果: ${ngs.length ? `不良 ${ngs.length} 件` : '全項目 良好'}`];
+    ngs.forEach(({ name, id }) => lines.push(`  ・${name}: ${d.items[id].note.trim()}`));
+    if (d.remarks.trim()) lines.push('', `特記事項: ${d.remarks.trim()}`);
+    return lines.filter((l) => l !== undefined).join('\n');
+  }
+
+  // CSV を添付してメールを送る。戻り値: 'shared'(共有画面でメールアプリへ渡した) / 'mailto'(メールアプリを開いた) / 'cancelled'
+  // ・対応している端末(スマホなど)は、共有画面からメールアプリを選ぶと CSV が添付された状態で開く
+  // ・非対応の環境は、CSV をダウンロードしてメールアプリ(mailto:)を開く。添付は手動
+  //   (Web ページから mailto: でファイルを自動添付することはできないため)
+  async function sendMail(d) {
+    const to = parseTo(d.mailTo).join(',');
+    const file = new File([buildCsv(d)], csvName(d), { type: 'text/csv' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: mailSubject(d), text: mailBody(d, `(添付: ${csvName(d)})`) });
+        return 'shared';
+      } catch (e) {
+        if (e && e.name === 'AbortError') return 'cancelled';
+        // 共有に失敗したときは、下のメールアプリ(mailto:)に切り替える
+      }
+    }
+    downloadCsv(d);
+    const url = 'mailto:' + to.split(',').map(encodeURIComponent).join(',').replace(/%40/g, '@') +
+      '?subject=' + encodeURIComponent(mailSubject(d)) +
+      '&body=' + encodeURIComponent(mailBody(d, `※ダウンロードした CSV ファイル(${csvName(d)})を、このメールに添付してください。`));
+    const a = document.createElement('a'); a.href = url;
+    document.body.appendChild(a); a.click(); a.remove();
+    return 'mailto';
+  }
+
+  const SEND_MSG = {
+    shared: 'メールアプリに点検内容(CSV 添付)を渡しました。共有画面では宛先が自動入力されないため、メールアプリで宛先を確認・入力して送信してください。',
+    mailto: 'メールアプリを開きました。ダウンロードした CSV ファイルをメールに添付してから送信してください。',
+    cancelled: '送信を中止しました。内容を確認して、もう一度「メールで送信する」を押してください。',
+  };
+
+  function showResult(d, status) {
     const ngs = ALL_ITEMS.filter(({ id }) => d.items[id].v === 'ng');
     const a = parseKm(d.startKm), b = parseKm(d.endKm);
     const box = $('result'); box.textContent = '';
-    const h = document.createElement('h2'); h.textContent = '記録しました';
+    const h = document.createElement('h2'); h.textContent = status === 'cancelled' ? '送信を中止しました' : '送信の手続きをしました';
     const badge = document.createElement('span');
     badge.className = 'badge ' + (ngs.length ? 'bad' : 'good');
     badge.textContent = ngs.length ? `不良 ${ngs.length} 件` : '全項目 良好';
     h.append(' ', badge);
+    const msg = document.createElement('p'); msg.id = 'sendMsg'; msg.textContent = SEND_MSG[status];
     const dl = document.createElement('dl');
     [['点検日', d.date], ['運転者名', d.driver.trim()], ['車両番号', d.vehicle.trim()],
      ['走りはじめ', fmtKm(a) + ' km'], ['走り終わり', b === null ? '(未記入)' : fmtKm(b) + ' km'],
-     ['走行距離', b === null ? '-' : fmtKm(b - a) + ' km']].forEach(([k, v]) => {
+     ['走行距離', b === null ? '-' : fmtKm(b - a) + ' km'], ['送信先', parseTo(d.mailTo).join(', ') || '(未入力)']].forEach(([k, v]) => {
       const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; dl.append(dt, dd);
     });
-    box.append(h, dl);
+    box.append(h, msg, dl);
     if (ngs.length) {
       const p = document.createElement('div'); p.textContent = '不良の項目'; p.style.fontWeight = '700';
       const ul = document.createElement('ul');
@@ -321,25 +396,26 @@
       box.append(p, ul);
     }
     const note = document.createElement('p'); note.className = 'hint';
-    note.textContent = 'この記録はサーバーには送信されません。必要に応じて CSV で保存してください。';
-    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'primary'; btn.textContent = 'CSV をダウンロード';
-    btn.addEventListener('click', () => {
-      const a2 = document.createElement('a');
-      a2.href = URL.createObjectURL(new Blob([buildCsv(d)], { type: 'text/csv;charset=utf-8' }));
-      a2.download = `inspection_${d.date.replace(/-/g, '')}.csv`;
-      document.body.appendChild(a2); a2.click(); a2.remove();
-      setTimeout(() => URL.revokeObjectURL(a2.href), 1000);
-    });
-    box.append(note, btn);
+    note.textContent = 'メールは、お使いのメールアプリから送信されます。このページがサーバーへ送信することはありません。';
+    const actions = document.createElement('div'); actions.className = 'actions'; actions.style.marginBottom = '0';
+    const again = document.createElement('button'); again.type = 'button'; again.className = 'primary'; again.id = 'resendBtn'; again.textContent = 'メールで送信する';
+    again.addEventListener('click', async () => showResult(d, await sendMail(d)));
+    const dlBtn = document.createElement('button'); dlBtn.type = 'button'; dlBtn.id = 'dlBtn'; dlBtn.textContent = 'CSV だけダウンロード';
+    dlBtn.addEventListener('click', () => downloadCsv(d));
+    actions.append(again, dlBtn);
+    box.append(note, actions);
     box.hidden = false; box.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   // ---- イベント ----
-  form.addEventListener('submit', (e) => {
+  // ボタンを押した操作の直後にメール送信を始める必要がある(共有画面はクリックなどの操作の直後しか開けない)
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const errs = validate(); showErrors(errs);
     if (errs.length) { $('result').hidden = true; const f = $(errs[0].focus); if (f) f.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
-    showResult(collect());
+    const d = collect();
+    saveMailTo();
+    showResult(d, await sendMail(d));
   });
   form.addEventListener('input', () => { updateTotal(); updateNotes(); saveDraft(); });
   form.addEventListener('change', () => { updateNotes(); saveDraft(); });
@@ -349,13 +425,15 @@
   });
   $('resetBtn').addEventListener('click', () => {
     if (!confirm('入力した内容をすべて消します。よろしいですか?')) return;
-    form.reset(); $('date').value = today(); updateTotal(); updateNotes(); showErrors([]);
+    const keepTo = $('mailTo').value;
+    form.reset(); $('date').value = today(); $('mailTo').value = keepTo; updateTotal(); updateNotes(); showErrors([]);
     $('result').hidden = true;
     try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
   });
 
   // ---- 初期表示(下書きがあれば復元) ----
   try { const d = JSON.parse(localStorage.getItem(STORAGE_KEY)); if (d) restore(d); } catch (e) {}
+  try { const m = localStorage.getItem(MAIL_KEY); if (m) $('mailTo').value = m; } catch (e) {}
   if (!$('date').value) $('date').value = today();
   updateTotal(); updateNotes();
 </script>
