@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>車両始業点検表</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px; background: #eef0f4; color: #222;
+    font-family: system-ui, "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif; line-height: 1.5;
+  }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { margin: 8px 0 16px; font-size: 22px; }
+  fieldset { margin: 0 0 16px; padding: 14px 16px 6px; background: #fff; border: 0; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+  legend { float: left; width: 100%; padding: 0; margin: 0 0 8px; font-size: 16px; font-weight: 700; }
+  legend + * { clear: both; }
+  .field { margin-bottom: 12px; }
+  .field > label, .field > .label { display: block; margin-bottom: 4px; font-size: 14px; font-weight: 600; }
+  .req { margin-left: 4px; color: #c0392b; font-size: 12px; }
+  .hint { margin-top: 2px; color: #777; font-size: 12px; }
+  input[type=text], input[type=date], textarea {
+    width: 100%; min-height: 44px; padding: 8px 10px; font: inherit; font-size: 16px;
+    border: 1px solid #c4c8d0; border-radius: 8px; background: #fff;
+  }
+  textarea { min-height: 72px; resize: vertical; }
+  .unit { display: flex; align-items: center; gap: 8px; }
+  .unit input { flex: 1; text-align: right; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 480px) { .row2 { grid-template-columns: 1fr; } }
+  .total { margin: 4px 0 12px; padding: 10px 12px; background: #f1f5ff; border-radius: 8px; font-size: 15px; }
+  .total strong { font-size: 20px; }
+  .item { padding: 10px 0; border-top: 1px solid #eceef2; }
+  .item:first-of-type { border-top: 0; }
+  .item-name { margin-bottom: 6px; font-size: 15px; }
+  .seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg label {
+    display: flex; align-items: center; justify-content: center; min-height: 44px; border: 1px solid #c4c8d0;
+    border-radius: 8px; background: #f7f8fa; font-size: 15px; cursor: pointer; user-select: none;
+  }
+  .seg input:focus-visible + label { outline: 3px solid #93c5fd; }
+  .seg input[value=ok]:checked + label { background: #d1f2dc; border-color: #2f9e5b; color: #14532d; font-weight: 700; }
+  .seg input[value=ng]:checked + label { background: #fde0e0; border-color: #d64545; color: #8a1c1c; font-weight: 700; }
+  .seg input[value=na]:checked + label { background: #e5e7eb; border-color: #8b93a1; color: #374151; font-weight: 700; }
+  .note { margin-top: 8px; }
+  .note[hidden] { display: none; }
+  .item.invalid { background: #fff5f5; margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 8px; }
+  .err { margin-top: 4px; color: #c0392b; font-size: 13px; }
+  .err:empty { display: none; }
+  .bulk { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  button {
+    min-height: 44px; padding: 0 16px; border: 0; border-radius: 10px; font: inherit; font-size: 16px; cursor: pointer;
+    background: #e8eaee; color: #222;
+  }
+  button.primary { background: #3b82f6; color: #fff; font-weight: 700; }
+  button:active { filter: brightness(.92); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 24px; }
+  .actions .primary { flex: 1; min-width: 160px; }
+  .summary-box { margin-bottom: 24px; padding: 16px; background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+  .summary-box[hidden] { display: none; }
+  .summary-box h2 { margin: 0 0 8px; font-size: 18px; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 14px; font-weight: 700; }
+  .badge.good { background: #d1f2dc; color: #14532d; }
+  .badge.bad { background: #fde0e0; color: #8a1c1c; }
+  .summary-box dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 12px 0; font-size: 15px; }
+  .summary-box dt { color: #666; }
+  .summary-box dd { margin: 0; }
+  .summary-box ul { margin: 4px 0 12px; padding-left: 20px; }
+  .error-summary { margin-bottom: 16px; padding: 12px 16px; background: #fde0e0; border-radius: 10px; color: #8a1c1c; font-size: 14px; }
+  .error-summary[hidden] { display: none; }
+  .error-summary ul { margin: 4px 0 0; padding-left: 20px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>車両始業点検表</h1>
+
+  <div class="error-summary" id="errorSummary" role="alert" hidden></div>
+
+  <form id="form" novalidate autocomplete="off">
+    <fieldset>
+      <legend>基本情報</legend>
+      <div class="field">
+        <label for="date">点検日<span class="req">必須</span></label>
+        <input type="date" id="date" name="date">
+        <div class="err" data-err="date"></div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label for="driver">運転者名<span class="req">必須</span></label>
+          <input type="text" id="driver" name="driver" autocomplete="name">
+          <div class="err" data-err="driver"></div>
+        </div>
+        <div class="field">
+          <label for="vehicle">車両番号<span class="req">必須</span></label>
+          <input type="text" id="vehicle" name="vehicle" placeholder="例: 品川 100 あ 12-34">
+          <div class="err" data-err="vehicle"></div>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>走行距離</legend>
+      <div class="row2">
+        <div class="field">
+          <label for="startKm">走りはじめの距離<span class="req">必須</span></label>
+          <div class="unit"><input type="text" id="startKm" name="startKm" inputmode="decimal"><span>km</span></div>
+          <div class="hint">始業時のオドメーター(積算距離計)の値</div>
+          <div class="err" data-err="startKm"></div>
+        </div>
+        <div class="field">
+          <label for="endKm">走り終わりの距離</label>
+          <div class="unit"><input type="text" id="endKm" name="endKm" inputmode="decimal"><span>km</span></div>
+          <div class="hint">終業後に記入(始業時は空欄でかまいません)</div>
+          <div class="err" data-err="endKm"></div>
+        </div>
+      </div>
+      <div class="total" id="total" aria-live="polite">走行距離: <strong>-</strong></div>
+    </fieldset>
+
+    <div id="items"></div>
+
+    <fieldset>
+      <legend>特記事項</legend>
+      <div class="field">
+        <label for="remarks" class="sr">気づいた点・連絡事項</label>
+        <textarea id="remarks" name="remarks" placeholder="気づいた点や連絡事項があれば記入してください"></textarea>
+      </div>
+    </fieldset>
+
+    <div class="actions">
+      <button type="button" id="resetBtn">入力をクリア</button>
+      <button type="submit" class="primary">記録する</button>
+    </div>
+  </form>
+
+  <section class="summary-box" id="result" aria-live="polite" hidden></section>
+</main>
+
+<script>
+  // 点検項目(グループ → 項目)
+  const GROUPS = [
+    { name: 'エンジンルーム', items: [
+      '冷却水(ラジエーター)の量', 'エンジンオイルの量', 'ブレーキ液の量',
+      'バッテリー液の量・端子の緩み', 'ファンベルトの張り・損傷', 'ウォッシャー液の量'] },
+    { name: 'エンジン・運転状態', items: [
+      'エンジンのかかり具合・異音', '低速・加速の状態', '排気の色(黒煙・白煙)'] },
+    { name: 'ブレーキ・ステアリング', items: [
+      'ブレーキペダルの踏みしろ・ききぐあい', 'パーキングブレーキの引きしろ', 'ハンドルの遊び・ガタ'] },
+    { name: 'タイヤ・足まわり', items: [
+      'タイヤの空気圧', 'タイヤの亀裂・損傷・異物', 'タイヤの溝の深さ・摩耗', 'ホイールナットの緩み'] },
+    { name: '灯火類・視界', items: [
+      'ヘッドライト(ロー・ハイ)', 'ブレーキランプ', '方向指示器・ハザードランプ', 'テールランプ・ナンバー灯',
+      'ワイパーの作動・ゴムの状態', 'ガラス・ミラーの汚れ・破損'] },
+    { name: '装備・書類', items: [
+      '計器・警告灯の点灯状態', 'ホーンの作動', 'シートベルトの作動・損傷', '車検証・自賠責保険証の携行',
+      '運転免許証の携行', '三角表示板・消火器の備え付け'] },
+    { name: '車体・荷台', items: [
+      '車体の損傷・油漏れ', '荷台・ゲート・ロックの状態(該当する場合)'] },
+  ];
+  const STORAGE_KEY = 'inspection-draft';
+  const $ = (id) => document.getElementById(id);
+  const form = $('form');
+  const ALL_ITEMS = [];   // { id, group, name }
+
+  // ---- 項目の描画 ----
+  const itemsRoot = $('items');
+  GROUPS.forEach((g, gi) => {
+    const fs = document.createElement('fieldset');
+    const lg = document.createElement('legend'); lg.textContent = g.name; fs.appendChild(lg);
+    if (gi === 0) {
+      const bulk = document.createElement('div'); bulk.className = 'bulk';
+      bulk.innerHTML = '<button type="button" id="allOk">全項目を「良」にする</button>';
+      fs.appendChild(bulk);
+    }
+    g.items.forEach((name) => {
+      const id = 'i' + ALL_ITEMS.length;
+      ALL_ITEMS.push({ id, group: g.name, name });
+      const div = document.createElement('div'); div.className = 'item'; div.dataset.id = id;
+      div.innerHTML = `
+        <div class="item-name" id="${id}-label">${name}</div>
+        <div class="seg" role="radiogroup" aria-labelledby="${id}-label">
+          <input type="radio" name="${id}" id="${id}-ok" value="ok"><label for="${id}-ok">良</label>
+          <input type="radio" name="${id}" id="${id}-ng" value="ng"><label for="${id}-ng">不良</label>
+          <input type="radio" name="${id}" id="${id}-na" value="na"><label for="${id}-na">該当なし</label>
+        </div>
+        <div class="note" hidden>
+          <input type="text" id="${id}-note" placeholder="不良の内容を記入(必須)" aria-label="${name}の不良内容">
+        </div>
+        <div class="err" data-err="${id}"></div>`;
+      fs.appendChild(div);
+    });
+    itemsRoot.appendChild(fs);
+  });
+
+  // ---- 入力の読み取り ----
+  // 全角数字・カンマを半角に直して数値にする。数値でなければ NaN、空なら null
+  function parseKm(text) {
+    const t = text.trim().replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+      .replace(/[．。]/g, '.').replace(/[,，]/g, '');
+    if (t === '') return null;
+    return /^\d+(\.\d+)?$/.test(t) ? Number(t) : NaN;
+  }
+  const fmtKm = (v) => String(Math.round(v * 10) / 10);
+
+  function itemValue(id) {
+    const c = form.querySelector(`input[name="${id}"]:checked`);
+    return c ? c.value : '';
+  }
+
+  function updateTotal() {
+    const a = parseKm($('startKm').value), b = parseKm($('endKm').value);
+    const el = $('total').querySelector('strong');
+    if (typeof a === 'number' && typeof b === 'number' && !isNaN(a) && !isNaN(b) && b >= a) el.textContent = fmtKm(b - a) + ' km';
+    else el.textContent = '-';
+    // 走り終わりが走りはじめより小さいときは、入力中にすぐ知らせる
+    const slot = document.querySelector('[data-err="endKm"]'), msg = '走りはじめの距離以上の値を入力してください';
+    if (typeof a === 'number' && typeof b === 'number' && !isNaN(a) && !isNaN(b) && b < a) slot.textContent = msg;
+    else if (slot.textContent === msg) slot.textContent = '';
+  }
+
+  function updateNotes() {
+    ALL_ITEMS.forEach(({ id }) => {
+      const ng = itemValue(id) === 'ng';
+      form.querySelector(`.item[data-id="${id}"] .note`).hidden = !ng;
+    });
+  }
+
+  // ---- 下書きの自動保存(ブラウザ内のみ) ----
+  function collect() {
+    const d = { date: $('date').value, driver: $('driver').value, vehicle: $('vehicle').value,
+      startKm: $('startKm').value, endKm: $('endKm').value, remarks: $('remarks').value, items: {} };
+    ALL_ITEMS.forEach(({ id }) => { d.items[id] = { v: itemValue(id), note: $(id + '-note').value }; });
+    return d;
+  }
+  function saveDraft() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(collect())); } catch (e) {} }
+  function restore(d) {
+    $('date').value = d.date || ''; $('driver').value = d.driver || ''; $('vehicle').value = d.vehicle || '';
+    $('startKm').value = d.startKm || ''; $('endKm').value = d.endKm || ''; $('remarks').value = d.remarks || '';
+    ALL_ITEMS.forEach(({ id }) => {
+      const it = (d.items || {})[id] || {};
+      if (it.v) { const r = $(`${id}-${it.v}`); if (r) r.checked = true; }
+      $(id + '-note').value = it.note || '';
+    });
+  }
+  const today = () => { const t = new Date(), p = (n) => String(n).padStart(2, '0'); return `${t.getFullYear()}-${p(t.getMonth() + 1)}-${p(t.getDate())}`; };
+
+  // ---- 入力チェック ----
+  function validate() {
+    const errs = [];   // { key, msg, focus }
+    const add = (key, msg, focus) => errs.push({ key, msg, focus });
+    if (!$('date').value) add('date', '点検日を入力してください', 'date');
+    if (!$('driver').value.trim()) add('driver', '運転者名を入力してください', 'driver');
+    if (!$('vehicle').value.trim()) add('vehicle', '車両番号を入力してください', 'vehicle');
+    const a = parseKm($('startKm').value), b = parseKm($('endKm').value);
+    if (a === null) add('startKm', '走りはじめの距離を入力してください', 'startKm');
+    else if (isNaN(a)) add('startKm', '数字で入力してください(例: 12345.6)', 'startKm');
+    if (b !== null && isNaN(b)) add('endKm', '数字で入力してください(例: 12400.2)', 'endKm');
+    else if (typeof a === 'number' && !isNaN(a) && typeof b === 'number' && b < a) add('endKm', '走りはじめの距離以上の値を入力してください', 'endKm');
+    ALL_ITEMS.forEach(({ id, name }) => {
+      const v = itemValue(id);
+      if (!v) add(id, `「${name}」の判定を選択してください`, id + '-ok');
+      else if (v === 'ng' && !$(id + '-note').value.trim()) add(id, `「${name}」の不良内容を記入してください`, id + '-note');
+    });
+    return errs;
+  }
+
+  function showErrors(errs) {
+    document.querySelectorAll('[data-err]').forEach((e) => { e.textContent = ''; });
+    document.querySelectorAll('.item.invalid').forEach((e) => e.classList.remove('invalid'));
+    errs.forEach((e) => {
+      const slot = document.querySelector(`[data-err="${e.key}"]`);
+      if (slot && !slot.textContent) slot.textContent = e.msg;
+      const item = document.querySelector(`.item[data-id="${e.key}"]`);
+      if (item) item.classList.add('invalid');
+    });
+    const box = $('errorSummary');
+    if (!errs.length) { box.hidden = true; box.textContent = ''; return; }
+    box.hidden = false; box.textContent = '';
+    const p = document.createElement('div'); p.textContent = `入力内容を確認してください(${errs.length}件)`; p.style.fontWeight = '700';
+    const ul = document.createElement('ul');
+    errs.slice(0, 8).forEach((e) => { const li = document.createElement('li'); li.textContent = e.msg; ul.appendChild(li); });
+    if (errs.length > 8) { const li = document.createElement('li'); li.textContent = `ほか ${errs.length - 8} 件`; ul.appendChild(li); }
+    box.append(p, ul);
+  }
+
+  // ---- 記録(確認表示 + CSV) ----
+  const STATUS = { ok: '良', ng: '不良', na: '該当なし' };
+  function csvField(v) { return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+
+  function buildCsv(d) {
+    const a = parseKm(d.startKm), b = parseKm(d.endKm);
+    const head = ['点検日', '運転者名', '車両番号', '走りはじめの距離(km)', '走り終わりの距離(km)', '走行距離(km)']
+      .concat(ALL_ITEMS.map((x) => x.name), ['特記事項']);
+    const row = [d.date, d.driver.trim(), d.vehicle.trim(), fmtKm(a), b === null ? '' : fmtKm(b), b === null ? '' : fmtKm(b - a)]
+      .concat(ALL_ITEMS.map(({ id }) => { const it = d.items[id]; return it.v === 'ng' ? `不良: ${it.note.trim()}` : STATUS[it.v]; }), [d.remarks.trim()]);
+    return '﻿' + [head, row].map((r) => r.map(csvField).join(',')).join('\r\n') + '\r\n';
+  }
+
+  function showResult(d) {
+    const ngs = ALL_ITEMS.filter(({ id }) => d.items[id].v === 'ng');
+    const a = parseKm(d.startKm), b = parseKm(d.endKm);
+    const box = $('result'); box.textContent = '';
+    const h = document.createElement('h2'); h.textContent = '記録しました';
+    const badge = document.createElement('span');
+    badge.className = 'badge ' + (ngs.length ? 'bad' : 'good');
+    badge.textContent = ngs.length ? `不良 ${ngs.length} 件` : '全項目 良好';
+    h.append(' ', badge);
+    const dl = document.createElement('dl');
+    [['点検日', d.date], ['運転者名', d.driver.trim()], ['車両番号', d.vehicle.trim()],
+     ['走りはじめ', fmtKm(a) + ' km'], ['走り終わり', b === null ? '(未記入)' : fmtKm(b) + ' km'],
+     ['走行距離', b === null ? '-' : fmtKm(b - a) + ' km']].forEach(([k, v]) => {
+      const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = k; dd.textContent = v; dl.append(dt, dd);
+    });
+    box.append(h, dl);
+    if (ngs.length) {
+      const p = document.createElement('div'); p.textContent = '不良の項目'; p.style.fontWeight = '700';
+      const ul = document.createElement('ul');
+      ngs.forEach(({ id, name }) => { const li = document.createElement('li'); li.textContent = `${name}: ${d.items[id].note.trim()}`; ul.appendChild(li); });
+      box.append(p, ul);
+    }
+    const note = document.createElement('p'); note.className = 'hint';
+    note.textContent = 'この記録はサーバーには送信されません。必要に応じて CSV で保存してください。';
+    const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'primary'; btn.textContent = 'CSV をダウンロード';
+    btn.addEventListener('click', () => {
+      const a2 = document.createElement('a');
+      a2.href = URL.createObjectURL(new Blob([buildCsv(d)], { type: 'text/csv;charset=utf-8' }));
+      a2.download = `inspection_${d.date.replace(/-/g, '')}.csv`;
+      document.body.appendChild(a2); a2.click(); a2.remove();
+      setTimeout(() => URL.revokeObjectURL(a2.href), 1000);
+    });
+    box.append(note, btn);
+    box.hidden = false; box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // ---- イベント ----
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const errs = validate(); showErrors(errs);
+    if (errs.length) { $('result').hidden = true; const f = $(errs[0].focus); if (f) f.focus(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+    showResult(collect());
+  });
+  form.addEventListener('input', () => { updateTotal(); updateNotes(); saveDraft(); });
+  form.addEventListener('change', () => { updateNotes(); saveDraft(); });
+  $('allOk').addEventListener('click', () => {
+    ALL_ITEMS.forEach(({ id }) => { $(id + '-ok').checked = true; });
+    updateNotes(); saveDraft();
+  });
+  $('resetBtn').addEventListener('click', () => {
+    if (!confirm('入力した内容をすべて消します。よろしいですか?')) return;
+    form.reset(); $('date').value = today(); updateTotal(); updateNotes(); showErrors([]);
+    $('result').hidden = true;
+    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+  });
+
+  // ---- 初期表示(下書きがあれば復元) ----
+  try { const d = JSON.parse(localStorage.getItem(STORAGE_KEY)); if (d) restore(d); } catch (e) {}
+  if (!$('date').value) $('date').value = today();
+  updateTotal(); updateNotes();
+</script>
+</body>
+</html>
