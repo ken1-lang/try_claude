@@ -21,8 +21,9 @@
   }
   .expr { min-height: 20px; color: #888; font-size: 14px; word-break: break-all; }
   .value { font-size: 32px; font-weight: 600; word-break: break-all; }
-  .tools { display: grid; grid-template-columns: 1fr 1.2fr 1.6fr; gap: 8px; margin-bottom: 8px; }
-  .tools button { height: 44px; font-size: 15px; padding: 0 4px; white-space: nowrap; }
+  .tools { display: grid; grid-template-columns: .8fr 1.1fr 1.6fr .8fr; gap: 8px; margin-bottom: 8px; }
+  .tools button { height: 44px; font-size: 14px; padding: 0 4px; white-space: nowrap; }
+  .tools button#sqrtBtn { font-size: 20px; }
   .settings {
     position: absolute; inset: 0; z-index: 10; padding: 24px 20px; background: #fff;
     border-radius: 16px; display: flex; flex-direction: column; gap: 12px;
@@ -78,6 +79,7 @@
     <button class="fn" type="button" id="allClear">AC</button>
     <button class="fn" type="button" id="openSettings">⚙ 設定</button>
     <button class="op" type="button" id="taxBtn">消費税(10%)</button>
+    <button class="op" type="button" id="sqrtBtn" aria-label="平方根">√</button>
   </div>
   <div class="modes" role="group" aria-label="進数">
     <button type="button" data-mode="10" class="on" aria-pressed="true">10進数</button>
@@ -143,6 +145,13 @@
   const HISTORY_MAX = 50;
   let calcHistory = [];
   try { calcHistory = JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch (e) {}
+
+  // 履歴に1件追加(新しい順・上限あり)
+  function record(exprText, result) {
+    calcHistory.unshift({ expr: exprText, result, t: Date.now(), base: mode });
+    calcHistory = calcHistory.slice(0, HISTORY_MAX);
+    saveHistory(); renderHistory();
+  }
 
   function saveHistory() {
     try { localStorage.setItem(HISTORY_KEY, JSON.stringify(calcHistory)); } catch (e) {}
@@ -284,9 +293,7 @@
       const r = calculate(s);
       const text = fmt(r);
       expr = s; render(text);
-      calcHistory.unshift({ expr: s, result: text, t: Date.now(), base: mode });
-      calcHistory = calcHistory.slice(0, HISTORY_MAX);
-      saveHistory(); renderHistory();
+      record(s, text);
       expr = text; justEvaluated = true;
     } catch (e) {
       render(e.message); expr = ''; justEvaluated = false;
@@ -330,14 +337,32 @@
       const base = calculate(s);
       const text = String(parseFloat((base * (1 + taxRate / 100)).toPrecision(12)));
       expr = `${s} 税込(${taxRate}%)`; render(text);
-      calcHistory.unshift({ expr, result: text, t: Date.now() });
-      calcHistory = calcHistory.slice(0, HISTORY_MAX);
-      saveHistory(); renderHistory();
+      record(expr, text);
       expr = text; justEvaluated = true;
     } catch (e) {
       render(e.message); expr = ''; justEvaluated = false;
     }
   }
+
+  // 現在の値(式なら計算結果)の平方根にする(10進数のみ)
+  function applySqrt() {
+    if (!expr || mode !== 10) return;
+    let s = expr;
+    if (OPS.includes(s.slice(-1))) s = s.slice(0, -1);
+    if (!s) return;
+    try {
+      const v = calculate(s);
+      if (v < 0) throw new Error('負の数の平方根は計算できません');
+      const text = fmt(Math.sqrt(v));
+      expr = `√(${s})`; render(text);
+      record(expr, text);
+      expr = text; justEvaluated = true;
+    } catch (e) {
+      render(e.message); expr = ''; justEvaluated = false;
+    }
+  }
+  const $sqrtBtn = document.getElementById('sqrtBtn');
+  $sqrtBtn.addEventListener('click', applySqrt);
 
   function openSettings() {
     $taxRate.value = String(taxRate); $settingsError.textContent = '';
@@ -382,7 +407,8 @@
       const k = b.dataset.in;
       b.disabled = OPS.includes(k) ? false : (k === '.' || k === '%') ? mode !== 10 : !DIGITS[mode].includes(k);
     });
-    $taxBtn.disabled = mode !== 10;   // 消費税は10進数のときだけ
+    $taxBtn.disabled = mode !== 10;   // 消費税・√ は10進数のときだけ
+    $sqrtBtn.disabled = mode !== 10;
   }
 
   // 進数を切り替え、入力中の式(式なら計算結果)を新しい進数の値に変換する

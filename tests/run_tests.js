@@ -24,13 +24,15 @@ const setRate = async (p, v) => { await p.click('#openSettings'); await p.fill('
 const setM = (p, n) => p.click(`.modes button[data-mode="${n}"]`);
 const pressH = async (p, s) => { for (const ch of s) { if (/[A-F]/.test(ch)) await p.click(`.hexkeys button:text-is("${ch}")`); else await press(p, ch); } };
 const dis = (p, k) => p.$eval(`.keys button:text-is("${MAP[k] || k}")`, b => b.disabled);
+const sqrtCalc = (seq, e, exprText) => async p => { await press(p, seq); await p.click('#sqrtBtn'); const v = await val(p); const x = await ex(p);
+  return [v === e && (exprText === undefined || x === exprText), `結果「${v}」(期待「${e}」)、式欄「${x}」`]; };
 const NA = reason => ({ skip: reason });
 
 const T = [
  // 画面表示
  async p => { const tools = await p.$$eval('.tools button', l => l.map(x => x.textContent)); const modes = await p.$$eval('.modes button', l => l.map(x => x.textContent)); const b = await p.$$eval('.keys button', l => l.map(x => x.textContent).sort().join(''));
    const exp = ['0','1','2','3','4','5','6','7','8','9','.','C','⌫','%','÷','×','−','+','='].sort().join('');
-   const h = await hist(p); const ok = b === exp && tools.join('|') === 'AC|⚙ 設定|消費税(10%)' && modes.join('|') === '10進数|2進数|16進数' && await val(p) === '0' && await ex(p) === '' && h.length === 1 && h[0] === '履歴はありません';
+   const h = await hist(p); const ok = b === exp && tools.join('|') === 'AC|⚙ 設定|消費税(10%)|√' && modes.join('|') === '10進数|2進数|16進数' && await val(p) === '0' && await ex(p) === '' && h.length === 1 && h[0] === '履歴はありません';
    return [ok, `表示欄「${await val(p)}」、式欄「${await ex(p)}」、ボタン${(await p.$$('.keys button')).length}個+${tools.join('・')}+${modes.join('・')}、履歴欄「${h[0]}」`]; },
  async p => { await press(p, '1234567890'); const a = await val(p); const bad = [];
    for (const d of '0123456789') { await press(p, 'C' + d); if (await val(p) !== d) bad.push(d); }
@@ -114,6 +116,21 @@ const T = [
    return [h1 === 'closed' && t1 === '消費税(8%)' && h2 === 'closed' && t2 === '消費税(8%)' && n === n2 && await val(p) === '3', `Enter後: 画面${h1}・ボタン「${t1}」、Esc後: 画面${h2}・ボタン「${t2}」、履歴件数 ${n}→${n2}、表示「${await val(p)}」`]; },
  async p => { await press(p, '12'); await p.click('#openSettings'); await p.fill('#taxRate', ''); await p.keyboard.type('55'); await p.keyboard.press('+');
    const v = await p.inputValue('#taxRate'); const d = await val(p); return [d === '12', `税率欄「${v}」、電卓の表示「${d}」(変わらない)`]; },
+ // ルート
+ async p => { const t = await p.$$eval('.tools button', l => l.map(x => x.textContent)); return [t[3] === '√', `ツール段のボタン: ${t.join(' / ')}`]; },
+ sqrtCalc('9', '3', '√(9)'),
+ sqrtCalc('2', '1.41421356237'),
+ sqrtCalc('2.25', '1.5'),
+ sqrtCalc('0', '0'),
+ sqrtCalc('7+9', '4'),
+ sqrtCalc('4+5=', '3'),
+ async p => { await press(p, '16'); await p.click('#sqrtBtn'); await p.click('#sqrtBtn'); return eq(await val(p), '2'); },
+ async p => { await press(p, '9'); await p.click('#sqrtBtn'); await press(p, '*2='); return eq(await val(p), '6'); },
+ async p => { await press(p, '3-5='); await p.click('#sqrtBtn'); const h = await hist(p); return [await val(p) === '負の数の平方根は計算できません' && h.length === 1, `表示「${await val(p)}」、履歴件数 ${h.length}(「3-5 =-2」のみ)`]; },
+ async p => { await p.click('#sqrtBtn'); const h = await hist(p); return [await val(p) === '0' && h[0] === '履歴はありません', `表示「${await val(p)}」、履歴「${h[0]}」`]; },
+ async p => { await press(p, '9'); await p.click('#sqrtBtn'); const h = await hist(p); return [h.length === 1 && h[0] === '√(9) =3', `履歴 ${JSON.stringify(h)}`]; },
+ async p => { await setM(p, 2); const a = await p.isDisabled('#sqrtBtn'); await setM(p, 16); const b = await p.isDisabled('#sqrtBtn'); await setM(p, 10); const c = await p.isDisabled('#sqrtBtn');
+   return [a && b && !c, `2進数で無効=${a}、16進数で無効=${b}、10進数に戻して無効=${c}`]; },
  // エラー
  calc('8/0=', '0で割れません'), calc('8/0=5+1=', '6'),
  async p => { await press(p, '8/0='); const h = await hist(p); return [h.length === 1 && h[0] === '履歴はありません', `履歴「${h.join(' / ')}」`]; },
